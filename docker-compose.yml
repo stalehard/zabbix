@@ -1,0 +1,148 @@
+version: '3.5'
+services:
+ zabbix-server:
+  image: zabbix/zabbix-server-pgsql:alpine-4.0-latest
+  ports:
+   - "10051:10051"
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - /etc/timezone:/etc/timezone:ro 
+   - /usr/lib/zabbix/alertscripts:/usr/lib/zabbix/alertscripts:ro
+  links:
+   - postgres-server:postgres-server   
+  ulimits:
+   nproc: 65535
+   nofile:
+    soft: 20000
+    hard: 40000
+  env_file:
+   - .env_db_pgsql
+   - .env_srv
+  user: root
+  depends_on:
+   - postgres-server  
+  networks:
+   zbx_net_backend:
+     aliases:
+      - zabbix-server
+      - zabbix-server-pgsql
+      - zabbix-server-alpine-pgsql
+      - zabbix-server-pgsql-alpine
+   zbx_net_frontend:
+#  devices:
+#   - "/dev/ttyUSB0:/dev/ttyUSB0"
+  stop_grace_period: 30s
+  sysctls:
+   - net.ipv4.ip_local_port_range=1024 65000
+   - net.ipv4.conf.all.accept_redirects=0
+   - net.ipv4.conf.all.secure_redirects=0
+   - net.ipv4.conf.all.send_redirects=0
+  labels:
+   com.zabbix.description: "Zabbix server with PostgreSQL database support"
+   com.zabbix.company: "Zabbix SIA"
+   com.zabbix.component: "zabbix-server"
+   com.zabbix.dbtype: "pgsql"
+   com.zabbix.os: "alpine"
+
+ zabbix-agent:
+  image: zabbix/zabbix-agent:alpine-4.0-latest
+  ports:
+   - "10050:10050"
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - /etc/timezone:/etc/timezone:ro   
+  links:
+   - zabbix-server:zabbix-server
+  env_file:
+   - .env_agent
+  user: root
+  privileged: true
+  pid: "host"
+  networks:
+   zbx_net_backend:
+    aliases:
+     - zabbix-agent
+     - zabbix-agent-passive
+     - zabbix-agent-alpine
+  stop_grace_period: 5s
+  labels:
+   com.zabbix.description: "Zabbix agent"
+   com.zabbix.company: "Zabbix SIA"
+   com.zabbix.component: "zabbix-agentd"
+   com.zabbix.os: "alpine"
+
+ zabbix-web-nginx-pgsql:
+  image: zabbix/zabbix-web-nginx-pgsql:alpine-4.0-latest
+  ports:
+   - "8081:80"
+   - "8443:443"
+  links:
+   - postgres-server:postgres-server
+   - zabbix-server:zabbix-server
+  volumes:
+   - /etc/localtime:/etc/localtime:ro
+   - /etc/timezone:/etc/timezone:ro   
+  env_file:
+   - .env_db_pgsql
+   - .env_web
+  user: root
+  depends_on:
+   - postgres-server
+   - zabbix-server
+  healthcheck:
+   test: ["CMD", "curl", "-f", "http://localhost"]
+   interval: 10s
+   timeout: 5s
+   retries: 3
+   start_period: 30s
+  networks:
+   zbx_net_backend:
+    aliases:
+     - zabbix-web-nginx-pgsql
+     - zabbix-web-nginx-alpine-pgsql
+     - zabbix-web-nginx-pgsql-alpine
+   zbx_net_frontend:
+  stop_grace_period: 10s
+  sysctls:
+   - net.core.somaxconn=65535
+  labels:
+   com.zabbix.description: "Zabbix frontend on Nginx web-server with PostgreSQL database support"
+   com.zabbix.company: "Zabbix SIA"
+   com.zabbix.component: "zabbix-frontend"
+   com.zabbix.webserver: "nginx"
+   com.zabbix.dbtype: "pgsql"
+   com.zabbix.os: "alpine"
+
+ postgres-server:
+  image: postgres:10
+  volumes:
+   - /var/lib/postgresql/data:/var/lib/postgresql/data:rw
+  env_file:
+   - .env_db_pgsql
+  user: root
+  stop_grace_period: 1m
+  networks:
+   zbx_net_backend:
+    aliases:
+     - postgres-server
+     - pgsql-server
+     - pgsql-database
+
+networks:
+  zbx_net_frontend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.16.238.0/24
+  zbx_net_backend:
+    driver: bridge
+    driver_opts:
+      com.docker.network.enable_ipv6: "false"
+    internal: true
+    ipam:
+      driver: default
+      config:
+      - subnet: 172.16.239.0/24
